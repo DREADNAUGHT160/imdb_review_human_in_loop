@@ -9,7 +9,14 @@ class SentimentModel:
     def __init__(self, model_name="distilbert-base-uncased-finetuned-sst-2-english", max_length=128, device=None):
         self.model_name = model_name
         self.max_length = max_length
-        self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
+        if device:
+            self.device = device
+        elif torch.cuda.is_available():
+            self.device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
         print(f"Using device: {self.device}")
         
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
