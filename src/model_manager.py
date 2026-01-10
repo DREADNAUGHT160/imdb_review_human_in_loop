@@ -1,9 +1,9 @@
 import os
 import torch
 import numpy as np
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 from datasets import Dataset
-from scipy.special import softmax
 
 class SentimentModel:
     def __init__(self, model_name="distilbert-base-uncased-finetuned-sst-2-english", max_length=128, device=None):
@@ -42,6 +42,18 @@ class SentimentModel:
 
     def tokenize_function(self, examples):
         return self.tokenizer(examples["text"], padding="max_length", truncation=True, max_length=self.max_length)
+
+    def compute_metrics(self, pred):
+        labels = pred.label_ids
+        preds = pred.predictions.argmax(-1)
+        precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='binary')
+        acc = accuracy_score(labels, preds)
+        return {
+            'accuracy': acc,
+            'f1': f1,
+            'precision': precision,
+            'recall': recall
+        }
 
     def train(self, start_model_path, train_data, val_data=None, output_dir="data/checkpoints", epochs=1):
         """
@@ -83,6 +95,7 @@ class SentimentModel:
             args=training_args,
             train_dataset=tokenized_train,
             eval_dataset=tokenized_val,
+            compute_metrics=self.compute_metrics if tokenized_val else None
         )
 
         trainer.train()

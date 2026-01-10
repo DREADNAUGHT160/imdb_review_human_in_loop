@@ -64,6 +64,14 @@ def train_baseline():
         eval_metrics = trainer.evaluate()
         st.session_state.train_metrics = eval_metrics
         st.success(f"Baseline Training Complete! Accuracy: {eval_metrics.get('eval_accuracy', 'N/A')}")
+        
+        # Confusion Matrix
+        preds = st.session_state.model.predict(st.session_state.test_dataset['text'])
+        probs = preds
+        y_pred = (probs > 0.5).astype(int)
+        y_true = st.session_state.test_dataset['label']
+        cm = confusion_matrix(y_true, y_pred)
+        st.session_state.confusion_matrix = cm
 
 def retrain():
     with st.spinner("Retraining with Human Labels..."):
@@ -165,10 +173,21 @@ st.sidebar.button("Retrain with Human Labels", on_click=retrain)
 st.title("Human-in-the-Loop Sentiment Labeling")
 
 # Metrics
-col1, col2, col3 = st.columns(3)
-col1.metric("Test Accuracy", f"{st.session_state.train_metrics.get('eval_accuracy', 0):.2%}")
-col2.metric("Human Labels", len(st.session_state.data_manager.load_human_labels()))
-col3.metric("Queue Remaining", len(st.session_state.review_queue) - st.session_state.queue_index if st.session_state.review_queue else 0)
+st.markdown("### Model Performance")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Acc", f"{st.session_state.train_metrics.get('eval_accuracy', 0):.2%}")
+col2.metric("F1", f"{st.session_state.train_metrics.get('eval_f1', 0):.4f}")
+col3.metric("Prec", f"{st.session_state.train_metrics.get('eval_precision', 0):.4f}")
+col4.metric("Rec", f"{st.session_state.train_metrics.get('eval_recall', 0):.4f}")
+
+c1, c2 = st.columns(2)
+c1.metric("Human Labels", len(st.session_state.data_manager.load_human_labels()))
+c2.metric("Queue Remaining", len(st.session_state.review_queue) - st.session_state.queue_index if st.session_state.review_queue else 0)
+
+if 'confusion_matrix' in st.session_state and st.session_state.confusion_matrix is not None:
+    st.markdown("### Confusion Matrix")
+    cm_df = pd.DataFrame(st.session_state.confusion_matrix, index=["Actual Neg", "Actual Pos"], columns=["Pred Neg", "Pred Pos"])
+    st.table(cm_df)
 
 # Labeling Panel
 if st.session_state.review_queue and st.session_state.queue_index < len(st.session_state.review_queue):
