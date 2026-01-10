@@ -6,3 +6,5 @@ pandas
 scikit-learn
 numpy<2
 accelerate
+matplotlib
+seaborn

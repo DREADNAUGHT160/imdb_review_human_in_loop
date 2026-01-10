@@ -4,6 +4,8 @@ import numpy as np
 import os
 import torch
 from sklearn.metrics import accuracy_score, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Disable tokenizer parallelism to prevent deadlocks on Windows
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -26,6 +28,10 @@ if 'queue_index' not in st.session_state:
     st.session_state.queue_index = 0
 if 'train_metrics' not in st.session_state:
     st.session_state.train_metrics = {}
+if 'metrics_history' not in st.session_state:
+    st.session_state.metrics_history = []
+if 'confusion_matrix' not in st.session_state:
+    st.session_state.confusion_matrix = None
 
 # --- Helper Functions ---
 def load_datasets(train_size):
@@ -63,6 +69,7 @@ def train_baseline():
         # Eval
         eval_metrics = trainer.evaluate()
         st.session_state.train_metrics = eval_metrics
+        st.session_state.metrics_history.append(eval_metrics) # Track history
         st.success(f"Baseline Training Complete! Accuracy: {eval_metrics.get('eval_accuracy', 'N/A')}")
         
         # Confusion Matrix
@@ -88,7 +95,19 @@ def retrain():
         
         eval_metrics = trainer.evaluate()
         st.session_state.train_metrics = eval_metrics
+        st.session_state.metrics_history.append(eval_metrics)
         st.success(f"Retraining Complete! Accuracy: {eval_metrics.get('eval_accuracy', 'N/A')}")
+        
+        # Confusion Matrix Update
+        try:
+             # Re-evaluate on test set to get fresh CM
+            preds = st.session_state.model.predict(st.session_state.test_dataset['text'])
+            y_pred = (preds > 0.5).astype(int)
+            y_true = st.session_state.test_dataset['label']
+            cm = confusion_matrix(y_true, y_pred)
+            st.session_state.confusion_matrix = cm
+        except Exception as e:
+            st.warning(f"Could not update confusion matrix: {e}")
 
 def build_queue(strategy, k, low, high):
     if not st.session_state.model:
@@ -184,10 +203,33 @@ c1, c2 = st.columns(2)
 c1.metric("Human Labels", len(st.session_state.data_manager.load_human_labels()))
 c2.metric("Queue Remaining", len(st.session_state.review_queue) - st.session_state.queue_index if st.session_state.review_queue else 0)
 
-if 'confusion_matrix' in st.session_state and st.session_state.confusion_matrix is not None:
-    st.markdown("### Confusion Matrix")
-    cm_df = pd.DataFrame(st.session_state.confusion_matrix, index=["Actual Neg", "Actual Pos"], columns=["Pred Neg", "Pred Pos"])
-    st.table(cm_df)
+# Visualizations
+st.markdown("### Visualizations")
+tab1, tab2 = st.tabs(["Confusion Matrix", "Metrics History"])
+
+with tab1:
+    if 'confusion_matrix' in st.session_state and st.session_state.confusion_matrix is not None:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.heatmap(st.session_state.confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=ax, 
+                    xticklabels=["Pred Neg", "Pred Pos"], yticklabels=["Actual Neg", "Actual Pos"])
+        st.pyplot(fig)
+    else:
+        st.info("Train the model to see the Confusion Matrix.")
+
+with tab2:
+    if st.session_state.metrics_history:
+        history_df = pd.DataFrame(st.session_state.metrics_history)
+        # Select relevant columns
+        cols_to_plot = ['eval_accuracy', 'eval_f1', 'eval_precision', 'eval_recall']
+        # Filter strictly for columns that exist
+        cols_to_plot = [c for c in cols_to_plot if c in history_df.columns]
+        
+        if cols_to_plot:
+            st.line_chart(history_df[cols_to_plot])
+        else:
+            st.warning("No metrics available to plot yet.")
+    else:
+        st.info("Train the model to see performance history.")
 
 # Labeling Panel
 if st.session_state.review_queue and st.session_state.queue_index < len(st.session_state.review_queue):
