@@ -51,10 +51,11 @@ This is the core "Human-in-the-Loop" part. We don't just pick random reviews. We
 *   **Labeling**: You click **Positive** or **Negative**.
 *   **Result**: The example is moved from the `unlabeled_pool` to the `human_labels` list.
 
-### Step 5: Retraining
-*   **Action**: We combine the original `labeled_train` data + your new `human_labels`.
-*   **Train**: The model retrains on this bigger, smarter dataset.
-*   **Improvement**: Because you solved the "hard" cases, the model often improves faster than if you had just labeled random data. `Metrics History` graph updates to show this progress.
+### 5. Retraining (Refining the Model)
+**Crucial Concept**: We do **NOT** delete the old model and start over. 
+*   **Continuous Learning**: We load the **existing** model (the one that already knows some sentiment) and continue training it.
+*   **Data**: We feed it the original data + your new 10 (or more) hard examples.
+*   **Result**: The model gently adjusts its internal "weights" to fix its mistakes on the hard examples while keeping what it already knew. It gets smarter, step by step.
 
 ---
 
