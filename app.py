@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import os
 import torch
+import subprocess
+import time
+import streamlit.components.v1 as components
 from sklearn.metrics import accuracy_score, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -50,6 +53,15 @@ def init_model(max_length):
             if os.path.exists("data/model"):
                  st.session_state.model.load("data/model")
             st.success("Model initialized.")
+
+def launch_tensorboard():
+    if 'tensorboard_process' not in st.session_state:
+        # Check if tensorboard is already running on port 6006
+        # This is a bit hacky, but sufficient for a local app
+        cmd = ["tensorboard", "--logdir=data/checkpoints", "--port=6006"]
+        proc = subprocess.Popen(cmd, shell=True)
+        st.session_state.tensorboard_process = proc
+        time.sleep(3) # Give it a sec to start
 
 def train_baseline():
     if not st.session_state.data_manager.train_dataset:
@@ -189,7 +201,11 @@ st.sidebar.button("Retrain with Human Labels", on_click=retrain)
 
 
 # --- Main Area ---
+# --- Main Area ---
 st.title("Human-in-the-Loop Sentiment Labeling")
+
+# Launch TensorBoard
+launch_tensorboard()
 
 # Metrics
 st.markdown("### Model Performance")
@@ -202,6 +218,18 @@ col4.metric("Rec", f"{st.session_state.train_metrics.get('eval_recall', 0):.4f}"
 c1, c2 = st.columns(2)
 c1.metric("Human Labels", len(st.session_state.data_manager.load_human_labels()))
 c2.metric("Queue Remaining", len(st.session_state.review_queue) - st.session_state.queue_index if st.session_state.review_queue else 0)
+
+with st.expander("Queue Overview (Active Learning Scores)"):
+     if st.session_state.review_queue:
+         df_queue = pd.DataFrame(st.session_state.review_queue)
+         # Ensure columns exist for consistent display
+         desired_cols = ['text', 'model_prob', 'entropy', 'disagreement_var', 'hash']
+         for c in desired_cols:
+             if c not in df_queue.columns:
+                 df_queue[c] = None
+         st.dataframe(df_queue[desired_cols].head(50), use_container_width=True)
+     else:
+         st.info("Queue is empty.")
 
 # Visualizations
 st.markdown("### Visualizations")
@@ -231,6 +259,13 @@ with tab2:
     else:
         st.info("Train the model to see performance history.")
 
+st.markdown("### Training Monitor")
+with st.expander("Show TensorBoard", expanded=True):
+    st.markdown("Monitor loss and accuracy in real-time.")
+    # Filter to show only 'loss' and 'accuracy' related plots by default
+    # Note: Regex usage depends on TensorBoard version. Trying generic 'loss|accuracy'.
+    components.iframe("http://localhost:6006/#scalars&regexInput=loss|accuracy", height=800)
+    
 # Labeling Panel
 if st.session_state.review_queue and st.session_state.queue_index < len(st.session_state.review_queue):
     item = st.session_state.review_queue[st.session_state.queue_index]

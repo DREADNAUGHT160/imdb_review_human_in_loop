@@ -86,6 +86,8 @@ class SentimentModel:
             eval_strategy="epoch" if tokenized_val else "no",
             save_strategy="no",
             logging_dir=f"{output_dir}/logs",
+            logging_steps=10,
+            report_to="tensorboard",
             learning_rate=2e-5,
             use_cpu=self.device == "cpu"
         )
