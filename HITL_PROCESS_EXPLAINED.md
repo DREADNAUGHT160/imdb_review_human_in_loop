@@ -21,7 +21,16 @@ The goal of this system is to train a high-quality Sentiment Analysis model (Pos
 *   **Outcome**: The model learns basic sentiment patterns but will likely be uncertain about complex or subtle reviews.
 *   **Metrics**: We measure Accuracy, F1-Score, and show a Confusion Matrix on the `test_set` to see how well it started.
 
-### Step 3: Active Learning (Selecting Data)
+### 3. Build Queue (Active Learning Sampling)
+When you click **"Build Queue"**:
+1.  **Sampling**: The system looks at the **Unlabeled Pool** (~23,000 items).
+2.  **Scoring**: It uses the selected strategy (e.g., *Uncertainty*) to score these items.
+    *   *Uncertainty*: Finds items where the model is roughly 50/50 (0.4 to 0.6 probability).
+    *   *Entropy*: Finds items with the highest information content (most confusing).
+    *   *Disagreement*: Run the model multiple times with dropout and pick items where predictions fluctuate.
+3.  **Filtration**: It checks if you've already labeled these items to avoid duplicates.
+4.  **Selection**: It picks the top $K$ items (e.g., 10) and puts them in your **Review Queue**.
+5.  **Display**: The "Queue Overview" table shows you the text and the specific score (e.g., `model_prob` or `entropy`) so you know *why* it was picked.
 This is the core "Human-in-the-Loop" part. We don't just pick random reviews. We use **Strategies** to find what the model *doesn't* know.
 
 #### How Selection Works:

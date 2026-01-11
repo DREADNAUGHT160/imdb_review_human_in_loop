@@ -63,7 +63,7 @@ def launch_tensorboard():
         st.session_state.tensorboard_process = proc
         time.sleep(3) # Give it a sec to start
 
-def train_baseline():
+def train_baseline(epochs=1):
     if not st.session_state.data_manager.train_dataset:
          st.error("Load data first!")
          return
@@ -74,7 +74,8 @@ def train_baseline():
              start_model_path=None,
              train_data=st.session_state.train_dataset,
              val_data=st.session_state.test_dataset.select(range(500)), # tiny val set for speed
-             output_dir="data/checkpoints/baseline"
+             output_dir="data/checkpoints/baseline",
+             epochs=epochs
         )
         st.session_state.model.save("data/model")
         
@@ -84,15 +85,18 @@ def train_baseline():
         st.session_state.metrics_history.append(eval_metrics) # Track history
         st.success(f"Baseline Training Complete! Accuracy: {eval_metrics.get('eval_accuracy', 'N/A')}")
         
-        # Confusion Matrix
-        preds = st.session_state.model.predict(st.session_state.test_dataset['text'])
+        # Confusion Matrix (on subset for speed)
+        subset_size = min(1000, len(st.session_state.test_dataset))
+        test_subset = st.session_state.test_dataset.select(range(subset_size))
+        
+        preds = st.session_state.model.predict(test_subset['text'])
         probs = preds
         y_pred = (probs > 0.5).astype(int)
-        y_true = st.session_state.test_dataset['label']
+        y_true = test_subset['label']
         cm = confusion_matrix(y_true, y_pred)
         st.session_state.confusion_matrix = cm
 
-def retrain():
+def retrain(epochs=1):
     with st.spinner("Retraining with Human Labels..."):
         # Combine data
         combined_data = st.session_state.data_manager.get_combined_train_data()
@@ -101,7 +105,8 @@ def retrain():
              start_model_path="data/model",
              train_data=combined_data,
              val_data=st.session_state.test_dataset.select(range(500)),
-             output_dir="data/checkpoints/retrain"
+             output_dir="data/checkpoints/retrain",
+             epochs=epochs
         )
         st.session_state.model.save("data/model")
         
@@ -112,10 +117,13 @@ def retrain():
         
         # Confusion Matrix Update
         try:
-             # Re-evaluate on test set to get fresh CM
-            preds = st.session_state.model.predict(st.session_state.test_dataset['text'])
+             # Re-evaluate on test set to get fresh CM (subset)
+            subset_size = min(1000, len(st.session_state.test_dataset))
+            test_subset = st.session_state.test_dataset.select(range(subset_size))
+            
+            preds = st.session_state.model.predict(test_subset['text'])
             y_pred = (preds > 0.5).astype(int)
-            y_true = st.session_state.test_dataset['label']
+            y_true = test_subset['label']
             cm = confusion_matrix(y_true, y_pred)
             st.session_state.confusion_matrix = cm
         except Exception as e:
@@ -196,8 +204,20 @@ st.sidebar.button("Build Queue", on_click=build_queue, args=(strategy, queue_siz
 
 st.sidebar.divider()
 st.sidebar.subheader("Training")
-st.sidebar.button("Train Baseline", on_click=train_baseline)
-st.sidebar.button("Retrain with Human Labels", on_click=retrain)
+epochs = st.sidebar.slider("Epochs", 1, 10, 1)
+st.sidebar.button("Train Baseline", on_click=train_baseline, args=(epochs,))
+st.sidebar.button("Retrain with Human Labels", on_click=retrain, args=(epochs,))
+
+st.sidebar.divider()
+st.sidebar.subheader("App Control")
+if st.sidebar.button("Reset Application"):
+    st.session_state.clear()
+    st.rerun()
+
+if st.sidebar.button("Stop Server"):
+    st.warning("Stopping server...")
+    time.sleep(1)
+    os._exit(0)
 
 
 # --- Main Area ---

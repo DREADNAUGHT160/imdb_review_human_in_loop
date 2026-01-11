@@ -38,7 +38,7 @@ class DataManager:
         # Split
         self.train_dataset = full_train.select(range(train_subset_size))
         self.unlabeled_pool = full_train.select(range(train_subset_size, len(full_train)))
-        self.test_dataset = dataset["test"]
+        self.test_dataset = dataset["test"].shuffle(seed=42)
         
         # Add hash IDs if not present (IMDb is just text/label)
         # We'll compute hashes on the fly when needed or wrap in a helper if performance allows.
