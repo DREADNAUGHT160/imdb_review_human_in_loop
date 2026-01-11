@@ -28,7 +28,7 @@ class SentimentModel:
         if os.path.exists(path):
             print(f"Loading model from {path}")
             self.tokenizer = AutoTokenizer.from_pretrained(path)
-            self.model = AutoModelForSequenceClassification.from_pretrained(path)
+            self.model = AutoModelForSequenceClassification.from_pretrained(path, use_safetensors=True)
             self.model.to(self.device)
         else:
             print(f"Path {path} does not exist. Keeping current model.")
@@ -36,7 +36,7 @@ class SentimentModel:
     def save(self, path):
         """Saves model and tokenizer to a local directory."""
         os.makedirs(path, exist_ok=True)
-        self.model.save_pretrained(path, safe_serialization=False)
+        self.model.save_pretrained(path, safe_serialization=True)
         self.tokenizer.save_pretrained(path)
         print(f"Model saved to {path}")
 

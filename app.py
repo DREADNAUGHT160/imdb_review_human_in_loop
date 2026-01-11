@@ -1,10 +1,12 @@
 import streamlit as st
+import datetime
 import pandas as pd
 import numpy as np
 import os
 import torch
 import subprocess
 import time
+import shutil
 import streamlit.components.v1 as components
 from sklearn.metrics import accuracy_score, confusion_matrix
 import matplotlib.pyplot as plt
@@ -35,6 +37,8 @@ if 'metrics_history' not in st.session_state:
     st.session_state.metrics_history = []
 if 'confusion_matrix' not in st.session_state:
     st.session_state.confusion_matrix = None
+if 'run_history' not in st.session_state:
+    st.session_state.run_history = []
 
 # --- Helper Functions ---
 def load_datasets(train_size):
@@ -49,19 +53,19 @@ def init_model(max_length):
     if st.session_state.model is None or st.session_state.model.max_length != max_length:
         with st.spinner("Initializing Model..."):
             st.session_state.model = SentimentModel(max_length=max_length)
-            # Try to load existing checkpoint if available
-            if os.path.exists("data/model"):
-                 st.session_state.model.load("data/model")
-            st.success("Model initialized.")
+            
+            # Check if saved model exists AND has the safetensors file
+            model_path = "data/model"
+            if os.path.exists(model_path) and os.path.exists(os.path.join(model_path, "model.safetensors")):
+                 st.session_state.model.load(model_path)
+                 st.success("Model initialized and loaded from checkpoint.")
+            else:
+                 if os.path.exists(model_path):
+                     st.warning(f"Found {model_path} but no model.safetensors. Using fresh model.")
+                 else:
+                     st.success("Initialized with pre-trained DistilBERT")
 
-def launch_tensorboard():
-    if 'tensorboard_process' not in st.session_state:
-        # Check if tensorboard is already running on port 6006
-        # This is a bit hacky, but sufficient for a local app
-        cmd = ["tensorboard", "--logdir=data/checkpoints", "--port=6006"]
-        proc = subprocess.Popen(cmd, shell=True)
-        st.session_state.tensorboard_process = proc
-        time.sleep(3) # Give it a sec to start
+
 
 def train_baseline(epochs=1):
     if not st.session_state.data_manager.train_dataset:
@@ -83,6 +87,21 @@ def train_baseline(epochs=1):
         eval_metrics = trainer.evaluate()
         st.session_state.train_metrics = eval_metrics
         st.session_state.metrics_history.append(eval_metrics) # Track history
+        
+        # Save detailed logs for simple plotting
+        if 'baseline_logs' not in st.session_state:
+            st.session_state.baseline_logs = []
+        st.session_state.baseline_logs = trainer.state.log_history
+        
+        # Log Run
+        st.session_state.run_history.append({
+            "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Type": "Baseline",
+            "Epochs": epochs,
+            "Accuracy": eval_metrics.get('eval_accuracy', 0.0),
+            "Loss": eval_metrics.get('eval_loss', 0.0)
+        })
+        
         st.success(f"Baseline Training Complete! Accuracy: {eval_metrics.get('eval_accuracy', 'N/A')}")
         
         # Confusion Matrix (on subset for speed)
@@ -113,6 +132,21 @@ def retrain(epochs=1):
         eval_metrics = trainer.evaluate()
         st.session_state.train_metrics = eval_metrics
         st.session_state.metrics_history.append(eval_metrics)
+        
+        # Save detailed logs for simple plotting
+        if 'retrain_logs' not in st.session_state:
+            st.session_state.retrain_logs = []
+        st.session_state.retrain_logs = trainer.state.log_history
+        
+        # Log Run
+        st.session_state.run_history.append({
+            "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Type": "Retrain",
+            "Epochs": epochs,
+            "Accuracy": eval_metrics.get('eval_accuracy', 0.0),
+            "Loss": eval_metrics.get('eval_loss', 0.0)
+        })
+        
         st.success(f"Retraining Complete! Accuracy: {eval_metrics.get('eval_accuracy', 'N/A')}")
         
         # Confusion Matrix Update
@@ -204,14 +238,29 @@ st.sidebar.button("Build Queue", on_click=build_queue, args=(strategy, queue_siz
 
 st.sidebar.divider()
 st.sidebar.subheader("Training")
-epochs = st.sidebar.slider("Epochs", 1, 10, 1)
+epochs = st.sidebar.slider("Epochs", 1, 500, 1)
 st.sidebar.button("Train Baseline", on_click=train_baseline, args=(epochs,))
 st.sidebar.button("Retrain with Human Labels", on_click=retrain, args=(epochs,))
 
 st.sidebar.divider()
 st.sidebar.subheader("App Control")
 if st.sidebar.button("Reset Application"):
+    st.warning("Resetting app and clearing logs/models...")
+    
+    # 3. Clear state
     st.session_state.clear()
+    
+    # 4. Clean up disk with retries/error handling
+    def safe_remove(path):
+        if os.path.exists(path):
+            try:
+                shutil.rmtree(path)
+            except Exception as e:
+                st.error(f"Could not delete {path}: {e}")
+                
+    safe_remove("data/checkpoints")
+    safe_remove("data/model")
+        
     st.rerun()
 
 if st.sidebar.button("Stop Server"):
@@ -224,8 +273,7 @@ if st.sidebar.button("Stop Server"):
 # --- Main Area ---
 st.title("Human-in-the-Loop Sentiment Labeling")
 
-# Launch TensorBoard
-launch_tensorboard()
+
 
 # Metrics
 st.markdown("### Model Performance")
@@ -265,26 +313,61 @@ with tab1:
         st.info("Train the model to see the Confusion Matrix.")
 
 with tab2:
+    st.subheader("Training Progress (Loss Reduction)")
+    # Extract loss history
+    def extract_loss(logs):
+        if not logs: return pd.DataFrame()
+        steps = []
+        losses = []
+        for x in logs:
+            if 'loss' in x and 'step' in x:
+                steps.append(x['step'])
+                losses.append(x['loss'])
+        return pd.DataFrame({"Step": steps, "Loss": losses})
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Baseline Loss**")
+        if 'baseline_logs' in st.session_state and st.session_state.baseline_logs:
+            df_base = extract_loss(st.session_state.baseline_logs)
+            if not df_base.empty:
+                st.line_chart(df_base.set_index("Step"))
+            else:
+                st.info("No baseline loss data.")
+        else:
+            st.info("Train Baseline to see loss curve.")
+
+    with col2:
+        st.markdown("**Retraining Loss**")
+        if 'retrain_logs' in st.session_state and st.session_state.retrain_logs:
+            df_retrain = extract_loss(st.session_state.retrain_logs)
+            if not df_retrain.empty:
+                st.line_chart(df_retrain.set_index("Step"))
+            else:
+                st.info("Retrain model to see loss curve.")
+                
+    st.subheader("Model Performance Evolution")
     if st.session_state.metrics_history:
         history_df = pd.DataFrame(st.session_state.metrics_history)
-        # Select relevant columns
         cols_to_plot = ['eval_accuracy', 'eval_f1', 'eval_precision', 'eval_recall']
-        # Filter strictly for columns that exist
         cols_to_plot = [c for c in cols_to_plot if c in history_df.columns]
-        
         if cols_to_plot:
             st.line_chart(history_df[cols_to_plot])
         else:
-            st.warning("No metrics available to plot yet.")
+            st.warning("No metrics available yet.")
     else:
         st.info("Train the model to see performance history.")
+        
+    st.divider()
+    st.subheader("Run History Table")
+    if st.session_state.run_history:
+        run_df = pd.DataFrame(st.session_state.run_history)
+        st.dataframe(run_df, use_container_width=True)
+    else:
+        st.info("No runs recorded yet.")
 
-st.markdown("### Training Monitor")
-with st.expander("Show TensorBoard", expanded=True):
-    st.markdown("Monitor loss and accuracy in real-time.")
-    # Filter to show only 'loss' and 'accuracy' related plots by default
-    # Note: Regex usage depends on TensorBoard version. Trying generic 'loss|accuracy'.
-    components.iframe("http://localhost:6006/#scalars&regexInput=loss|accuracy", height=800)
+
     
 # Labeling Panel
 if st.session_state.review_queue and st.session_state.queue_index < len(st.session_state.review_queue):
