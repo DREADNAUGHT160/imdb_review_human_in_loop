@@ -46,3 +46,23 @@ The app will open in your browser at `http://localhost:8501`.
     - Install PyTorch with CUDA support if you have an NVIDIA GPU.
 - **Tokenizer Warnings**:
     - The model truncates long reviews to 512 tokens. This is normal for BERT.
+
+## Deployment (Docker)
+
+You can containerize this application for easy deployment.
+
+1.  **Build the Image**:
+    ```bash
+    docker build -t hitl-sentiment .
+    ```
+
+2.  **Run the Container**:
+    ```bash
+    docker run -p 8501:8501 hitl-sentiment
+    ```
+
+    *   Access the app at `http://localhost:8501`.
+    *   **Note**: The container runs on CPU by default. To persist data or models, mount the `/app/data` volume:
+        ```bash
+        docker run -p 8501:8501 -v $(pwd)/data:/app/data hitl-sentiment
+        ```

@@ -7,59 +7,87 @@ The goal of this system is to train a high-quality Sentiment Analysis model (Pos
 
 ---
 
-## 2. The Workflow Steps
+## 2. Step-by-Step User Guide
 
-### Step 1: Initial Data Loading
-*   **Source**: We load the **IMDb** dataset (movie reviews).
-*   **Split**:
-    *   **labeled_train**: A small initial set (e.g., 2,000 examples) that already has labels (0 or 1).
-    *   **unlabeled_pool**: A large pool of reviews (~20,000+) treated as "unknown" (we hide the labels).
-    *   **test_set**: A separate set of examples used ONLY for testing accuracy. The model never trains on this.
+This section explains how to use the web interface, organized like a presentation for clarity.
 
-### Step 2: Baseline Training
-*   **Action**: We train the `DistilBERT` model on the small `labeled_train` set.
-*   **Outcome**: The model learns basic sentiment patterns but will likely be uncertain about complex or subtle reviews.
-*   **Metrics**: We measure Accuracy, F1-Score, and show a Confusion Matrix on the `test_set` to see how well it started.
+### Phase 1: Setup & Initialization
+*   **Action**: Look at the **Sidebar** on the left.
+*   **1. Load Data**:
+    *   *What to do*: Set "Initial Train Size" (default 2000) and click **"Load/Reset Data"**.
+    *   *Why*: This splits the IMDb dataset. 2,000 reviews become your "Labeled Training Set" (what the model learns from first). The remaining ~23,000 become the "Unlabeled Pool" (what the model will query you about later).
+*   **2. Initialize Model**:
+    *   *What to do*: Set "Max Sequence Length" (default 128) and click **"Initialize Model"**.
+    *   *Why*: This loads the `DistilBERT` model into memory and moves it to the GPU (if available). It prepares the brain of the system.
 
-### 3. Build Queue (Active Learning Sampling)
-When you click **"Build Queue"**:
-1.  **Sampling**: The system looks at the **Unlabeled Pool** (~23,000 items).
-2.  **Scoring**: It uses the selected strategy (e.g., *Uncertainty*) to score these items.
-    *   *Uncertainty*: Finds items where the model is roughly 50/50 (0.4 to 0.6 probability).
-    *   *Entropy*: Finds items with the highest information content (most confusing).
-    *   *Disagreement*: Run the model multiple times with dropout and pick items where predictions fluctuate.
-3.  **Filtration**: It checks if you've already labeled these items to avoid duplicates.
-4.  **Selection**: It picks the top $K$ items (e.g., 10) and puts them in your **Review Queue**.
-5.  **Display**: The "Queue Overview" table shows you the text and the specific score (e.g., `model_prob` or `entropy`) so you know *why* it was picked.
-This is the core "Human-in-the-Loop" part. We don't just pick random reviews. We use **Strategies** to find what the model *doesn't* know.
+### Phase 2: Establish Baseline
+*   **3. Train Baseline**:
+    *   *What to do*: Under "Training" in the sidebar, click **"Train Baseline"**.
+    *   *Why*: The model needs a starting point. It trains *only* on the initial 2,000 labeled examples.
+    *   *Outcome*: You will see an initial Accuracy score (e.g., ~82%) in the top metrics panel.
 
-#### How Selection Works:
-1.  **Sampling**: We take a chunk of the `unlabeled_pool`.
-2.  **Prediction**: The model predicts the sentiment for these unlabeled examples.
-3.  **Ranking**: We score each example based on the chosen strategy:
+### Phase 3: The Active Learning Loop (The Core Task)
+*   **4. Select Strategy**:
+    *   *What to do*: Under "Active Learning" in the sidebar, choose a strategy (e.g., **"Uncertainty"**) and set "Queue Size" (e.g., 10).
+    *   *Why*: This decides *how* the model finds confusing data. "Uncertainty" looks for reviews where it is 50/50 confused. "Entropy" looks for maximum information.
+*   **5. Build Queue**:
+    *   *What to do*: Click **"Build Queue"**.
+    *   *Why*: The model scans the 23,000 unlabeled reviews, scores them, and picks the top 10 hardest ones. It moves them to your **Review Queue**.
 
-    *   **Uncertainty Sampling**: We pick examples where the model's confidence is lowest (e.g., 51% Positive, 49% Negative). These are the "hardest" questions for the model.
-    *   **Entropy Sampling**: Similar to uncertainty, but mathematically measures "chaos" or information density. High entropy = high confusion.
-    *   **Disagreement**: We use "Monte Carlo Dropout". We run the model multiple times on the same text with slight random noise. If the predictions vary wildly (e.g., Run 1 says Positive, Run 2 says Negative), the model is unstable and needs help.
-    *   **Random**: Purely random selection (used as a control baseline).
+### Phase 4: Human Labeling
+*   **6. Label the Queue**:
+    *   *What to do*: Look at the main center panel. Read the review text.
+    *   *Insight*: Check "Model P(POS)". If it says 0.50, the model has NO idea if this is positive or negative.
+    *   *Action*: Click **"POSITIVE (1)"** or **"NEGATIVE (0)"** based on your judgment.
+    *   *Why*: You are teaching the model. Every label you provide resolves a confusion the model had.
 
-4.  **Queue**: The top 10 (or $K$) most "valuable" examples are put into your **Review Queue**.
-
-### Step 4: Human Labeling
-*   **Action**: You, the human, see the text of these difficult examples.
-*   **Insight**: The UI shows *why* it was picked (e.g., "Model Confidence: 50.1%").
-*   **Labeling**: You click **Positive** or **Negative**.
-*   **Result**: The example is moved from the `unlabeled_pool` to the `human_labels` list.
-
-### 5. Retraining (Refining the Model)
-**Crucial Concept**: We do **NOT** delete the old model and start over. 
-*   **Continuous Learning**: We load the **existing** model (the one that already knows some sentiment) and continue training it.
-*   **Data**: We feed it the original data + your new 10 (or more) hard examples.
-*   **Result**: The model gently adjusts its internal "weights" to fix its mistakes on the hard examples while keeping what it already knew. It gets smarter, step by step.
+### Phase 5: Improvement
+*   **7. Retrain**:
+    *   *What to do*: After labeling the queue (10 items), go to the sidebar and click **"Retrain with Human Labels"**.
+    *   *Why*: The model updates its internal weights. It learns from its original data *PLUS* the 10 difficult cases you just solved.
+    *   *Outcome*: Watch the **Loss Curve** (in the "Visualizations" tab) go down and the **Accuracy** go up. The model is getting smarter!
 
 ---
 
-## 3. Training vs. Testing
+## 3. Technical Execution Flow
+
+For advanced users or developers, here is what happens under the hood when you click those buttons:
+
+### A. Initialization (`src/model_manager.py`)
+1.  **Device Selection**: The system checks for CUDA (NVIDIA), MPS (Mac), or CPU.
+2.  **Model Loading**:
+    *   It looks for a local checkpoint in `data/model`.
+    *   If not found, it downloads `distilbert-base-uncased-finetuned-sst-2-english` from Hugging Face.
+    *   **Tokenizer**: Loads the matching AutoTokenizer.
+
+### B. Training Loop (`SentinmentModel.train`)
+When you click **"Train"** or **"Retrain"**:
+1.  **Data Preparation**:
+    *   Converts text to tokens (input_ids, attention_mask) using `max_length` (padding/truncation).
+    *   Creates a PyTorch `Dataset`.
+2.  **Trainer Setup**:
+    *   Uses Hugging Face `Trainer`.
+    *   **Batch Size**: 16 (default).
+    *   **Learning Rate**: 2e-5.
+    *   **Optimizer**: AdamW.
+3.  **Execution**:
+    *   Runs for $N$ epochs.
+    *   Computes Loss (CrossEntropy) and updates weights via Backpropagation.
+4.  **Serialization**: Saves the fine-tuned model to `data/model` (safetensors format).
+
+### C. Inference Loop (`SentimentModel.predict`)
+When the model scores the **Unlabeled Pool** for Active Learning:
+1.  **Batching**: It processes 23,000 items in batches of 32 to avoid Memory (OOM) errors.
+2.  **Forward Pass**: 
+    *   `no_grad()` context is used (faster, no training).
+    *   **Logits**: The raw output scores from the final layer.
+3.  **Probability**:
+    *   Apply `Softmax(logits)` to get probabilities [0.0, 1.0].
+    *   We extract the probability of Class 1 (Positive) for scoring.
+
+---
+
+## 4. Training vs. Testing
 *   **Training**: Happens on the `labeled_train` + `human_labels`. The model aligns its weights to minimize error on these examples.
 *   **Testing**: Happens on the `test_set` (validation). This data is **never** shown to the model during training. It acts as an unbiased exam.
     *   *Example*: If training accuracy is 99% but test accuracy is 80%, the model is "overfitting" (memorizing).
